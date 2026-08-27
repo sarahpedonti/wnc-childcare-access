@@ -1,0 +1,9 @@
+item,value
+analysis_version,18-county Rutherford-repaired capacity and quality analysis
+demand_surface_n,41078
+original_demand_n,37982
+rutherford_added_n,3096
+rutherford_source,"Rutherford E911 address points, 2023-09-07"
+quality_metric,Capacity-weighted E2SFCA multiplied by provider star rating / 5
+hex_cellsize_m,5000
+minimum_locations_per_public_hex,10

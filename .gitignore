@@ -1,0 +1,27 @@
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.Renviron
+.env
+rsconnect/
+.DS_Store
+
+# Never publish raw/restricted geographic inputs
+data/raw/
+data/private/
+data/restricted/
+*.shp
+*.shx
+*.dbf
+*.prj
+*.gpkg
+*.rds
+
+# Never publish secrets / routing caches
+*apikey*
+*api_key*
+*secret*
+*token*
+*routing*
+*isochrone*
