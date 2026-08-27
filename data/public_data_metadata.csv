@@ -1,9 +1,16 @@
-item,value
-analysis_version,18-county Rutherford-repaired capacity and quality analysis
-demand_surface_n,41078
-original_demand_n,37982
-rutherford_added_n,3096
-rutherford_source,"Rutherford E911 address points, 2023-09-07"
-quality_metric,Capacity-weighted E2SFCA multiplied by provider star rating / 5
-hex_cellsize_m,5000
-minimum_locations_per_public_hex,10
+field,value
+study_footprint,18 Western North Carolina counties present in the 2023 baseline
+modeled_demand_locations,41078
+public_hex_size,5 km
+public_suppression_rule,Hexagons with fewer than 10 modeled child-demand locations are not displayed
+provider_eligibility,Analytic provider universe restricted to licenses serving at least some children younger than age 5; school-age-only licenses excluded
+capacity_definition,Full licensed capacity at EC-serving providers; mixed-age programs may include school-age capacity and values must not be interpreted as preschool or under-5 slots
+travel_weights,0-10 minutes = 1.0; 10-20 minutes = 0.5
+ec_providers_2023,332
+ec_providers_2026,327
+licensed_capacity_ec_serving_2023,20000
+licensed_capacity_ec_serving_2026,21883
+quality_rating_coverage_2023,97.6%
+quality_rating_coverage_2026,90.2%
+quality_caution,North Carolina's quality-rating framework changed after the 2023 baseline; longitudinal quality comparisons are descriptive
+causal_caution,2023-2026 differences are descriptive longitudinal changes and should not be interpreted as causal effects of Hurricane Helene

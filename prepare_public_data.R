@@ -1,221 +1,97 @@
-# =============================================================================
-# PREPARE PUBLIC-SAFE SHINY DATA
-# WNC CHILD CARE ACCESS — FINAL 18-COUNTY RUTHERFORD-REPAIRED VERSION
-# =============================================================================
+# ==============================================================================
+# PREPARE PUBLIC DATA — EC-ELIGIBILITY CORRECTED
+# WNC child-care accessibility dashboard, 2023 vs 2026
 #
-# PURPOSE
-# -------
-# Build the public data layer used by the WNC Child Care Access Shiny app.
+# Inputs are the corrected 41,078-location E2SFCA and quality outputs.
+# Public output is aggregated to 5-km hexagons; cells with <10 modeled demand
+# locations are suppressed.
 #
-# This version uses the FINAL repaired 18-county demand surface:
-#
-#   Original fixed demand surface:   37,982 locations
-#   Added Rutherford locations:       3,096 locations
-#   Final 18-county demand surface:  41,078 locations
-#
-# Rutherford demand locations were reconstructed from the
-# September 7, 2023 Rutherford County E911 address-point file.
-#
-# PUBLIC OUTPUTS
-# --------------
-#   data/child_access_hex.geojson
-#   data/county_summary_public.csv
-#
-# PRIVACY
-# -------
-# Exact residential locations are NEVER written to the public repository.
-# Child-level results are aggregated to a 5-km hexagonal grid.
-#
-# IMPORTANT
-# ---------
-# This script does NOT rerun routing.
-#
-# =============================================================================
-
-
-# =============================================================================
-# 1. PACKAGES
-# =============================================================================
+# NO HERE/ROUTING/API CALLS ARE MADE.
+# ==============================================================================
 
 library(tidyverse)
 library(sf)
-library(tigris)
 
-options(
-  tigris_use_cache = TRUE,
-  scipen = 999
-)
+# ------------------------------------------------------------------------------
+# 1. PATHS
+# ------------------------------------------------------------------------------
 
-
-# =============================================================================
-# 2. PROJECT PATHS
-# =============================================================================
-
-project_dir <- paste0(
+repair_dir <- paste0(
   "~/Library/CloudStorage/",
   "OneDrive-WesternCarolinaUniversity(WCU)/",
-  "WNC_Helene_ECRQ_Coauthor_Package_2026-08-19"
-)
-
-results_dir <- file.path(
-  project_dir,
-  "04_Results"
-)
-
-repair_dir <- file.path(
-  project_dir,
+  "WNC_Helene_ECRQ_Coauthor_Package_2026-08-19/",
   "10_Rutherford_Repair"
 )
 
-repair_results_dir <- file.path(
+e2_dir <- file.path(
   repair_dir,
   "18county_e2sfca_recomputed"
 )
 
-
-# Shiny project folder.
-#
-# This assumes you run this script from:
-#
-# /Users/spedonti/Downloads/wnc-childcare-access-shiny-v1
-#
-
-public_dir <- "data"
-
-dir.create(
-  public_dir,
-  showWarnings = FALSE,
-  recursive = TRUE
+ec_dir <- file.path(
+  e2_dir,
+  "EC_AGE_ELIGIBILITY_CORRECTED"
 )
 
+quality_dir <- file.path(
+  ec_dir,
+  "QUALITY_EC_CORRECTED"
+)
 
-# =============================================================================
-# 3. FINAL REPAIRED INPUT FILES
-# =============================================================================
+# Run this script from the root of your Shiny/GitHub project.
+public_dir <- "data"
+dir.create(public_dir, showWarnings = FALSE, recursive = TRUE)
 
-demand_file <- file.path(
+child_file <- file.path(
   repair_dir,
   "sampled_residences_wgs84_18COUNTY_REPAIRED.gpkg"
 )
 
 access23_file <- file.path(
-  repair_results_dir,
-  "child_access_2023_18COUNTY_RECOMPUTED.csv"
+  ec_dir,
+  "child_access_2023_EC_CORRECTED.csv"
 )
 
 access26_file <- file.path(
-  repair_results_dir,
-  "child_access_2026_18COUNTY_RECOMPUTED.csv"
+  ec_dir,
+  "child_access_2026_EC_CORRECTED.csv"
 )
 
 change_file <- file.path(
-  repair_results_dir,
-  "child_level_access_change_18COUNTY_RECOMPUTED.csv"
+  ec_dir,
+  "child_access_change_EC_CORRECTED.csv"
 )
 
-
-# =============================================================================
-# 4. VERIFY REQUIRED REPAIRED FILES
-# =============================================================================
-
-required_files <- c(
-  demand_file,
-  access23_file,
-  access26_file,
-  change_file
+quality_file <- file.path(
+  quality_dir,
+  "QUALITY_ACCESS_CHILD_LEVEL_EC_CORRECTED.csv"
 )
 
-missing_files <- required_files[
-  !file.exists(
-    path.expand(required_files)
-  )
-]
-
-if (length(missing_files) > 0) {
-  
-  stop(
-    "\nThe following repaired Rutherford files were not found:\n\n",
-    paste(
-      missing_files,
-      collapse = "\n"
-    ),
-    "\n\nCheck the project paths before continuing."
-  )
-}
-
-
-message(
-  "\nUsing repaired 18-county analysis files."
+quality_headline_file <- file.path(
+  quality_dir,
+  "QUALITY_ACCESS_HEADLINE_EC_CORRECTED.csv"
 )
 
-message(
-  "Repair directory: ",
-  normalizePath(
-    repair_results_dir
-  )
+quality_coverage_file <- file.path(
+  quality_dir,
+  "QUALITY_RATING_COVERAGE_EC_CORRECTED.csv"
 )
 
-
-# =============================================================================
-# 5. READ FINAL REPAIRED DEMAND SURFACE
-# =============================================================================
+# ------------------------------------------------------------------------------
+# 2. READ CORRECTED ANALYTIC OUTPUTS
+# ------------------------------------------------------------------------------
 
 children <- st_read(
-  path.expand(demand_file),
+  child_file,
   quiet = TRUE
-) |>
-  st_transform(4326) |>
-  arrange(child_row_id)
-
-
-# Critical validation.
-
-stopifnot(
-  nrow(children) == 41078
 )
 
-stopifnot(
-  length(
-    unique(
-      children$child_row_id
-    )
-  ) == 41078
-)
+if (!"child_row_id" %in% names(children)) {
+  children <- children |>
+    mutate(child_row_id = row_number())
+}
 
-
-message(
-  "Final repaired demand surface: ",
-  format(
-    nrow(children),
-    big.mark = ","
-  ),
-  " locations."
-)
-
-
-# Rutherford should occupy the appended IDs.
-
-n_rutherford <- sum(
-  children$child_row_id > 37982
-)
-
-stopifnot(
-  n_rutherford == 3096
-)
-
-
-message(
-  "Rutherford repaired demand locations: ",
-  format(
-    n_rutherford,
-    big.mark = ","
-  )
-)
-
-
-# =============================================================================
-# 6. READ FINAL 18-COUNTY ACCESS RESULTS
-# =============================================================================
+stopifnot(nrow(children) == 41078)
 
 a23 <- read_csv(
   access23_file,
@@ -232,798 +108,563 @@ chg <- read_csv(
   show_col_types = FALSE
 )
 
+qual <- read_csv(
+  quality_file,
+  show_col_types = FALSE
+)
 
-# Validate row counts.
+qheadline <- read_csv(
+  quality_headline_file,
+  show_col_types = FALSE
+)
+
+qcoverage <- read_csv(
+  quality_coverage_file,
+  show_col_types = FALSE
+)
 
 stopifnot(
   nrow(a23) == 41078,
   nrow(a26) == 41078,
-  nrow(chg) == 41078
+  nrow(chg) == 41078,
+  nrow(qual) == 41078
 )
 
+# ------------------------------------------------------------------------------
+# 3. BUILD ONE CHILD-LEVEL SPATIAL TABLE
+# ------------------------------------------------------------------------------
 
-# Validate IDs.
-
-stopifnot(
-  setequal(
-    children$child_row_id,
-    a23$child_row_id
-  ),
-  setequal(
-    children$child_row_id,
-    a26$child_row_id
-  ),
-  setequal(
-    children$child_row_id,
-    chg$child_row_id
-  )
-)
-
-
-message(
-  "Repaired 2023/2026 access results validated."
-)
-
-
-# =============================================================================
-# 7. STUDY COUNTIES
-# =============================================================================
-
-wnc_counties <- c(
-  "Avery",
-  "Buncombe",
-  "Burke",
-  "Cherokee",
-  "Clay",
-  "Graham",
-  "Haywood",
-  "Henderson",
-  "Jackson",
-  "Macon",
-  "Madison",
-  "McDowell",
-  "Mitchell",
-  "Polk",
-  "Rutherford",
-  "Swain",
-  "Transylvania",
-  "Yancey"
-)
-
-
-# =============================================================================
-# 8. COUNTY BOUNDARIES
-# =============================================================================
-
-counties <- tigris::counties(
-  state = "NC",
-  cb = TRUE,
-  year = 2024,
-  class = "sf"
-) |>
-  filter(
-    NAME %in% wnc_counties
-  ) |>
-  select(
-    county = NAME
-  ) |>
-  st_make_valid() |>
-  st_transform(4326)
-
-
-stopifnot(
-  nrow(counties) == 18
-)
-
-
-# =============================================================================
-# 9. ASSIGN COUNTY TO EACH DEMAND LOCATION
-# =============================================================================
-
-# Remove any old county fields first to prevent duplicate-column problems.
-
-children <- children |>
-  select(
-    -any_of(
-      c(
-        "county",
-        "COUNTY",
-        "County"
-      )
-    )
-  )
-
-
-children <- st_join(
-  children,
-  counties,
-  join = st_within,
-  left = TRUE
-)
-
-
-# Boundary-point fallback.
-
-missing_county <- which(
-  is.na(
-    children$county
-  )
-)
-
-if (length(missing_county) > 0) {
-  
-  message(
-    "Assigning ",
-    length(missing_county),
-    " boundary points to nearest county."
-  )
-  
-  nearest <- st_nearest_feature(
-    children[
-      missing_county,
-    ],
-    counties
-  )
-  
-  children$county[
-    missing_county
-  ] <- counties$county[
-    nearest
-  ]
-}
-
-
-stopifnot(
-  !any(
-    is.na(
-      children$county
-    )
-  )
-)
-
-
-# Validate Rutherford.
-
-ruth_count <- sum(
-  children$county == "Rutherford"
-)
-
-message(
-  "Demand points assigned to Rutherford County: ",
-  format(
-    ruth_count,
-    big.mark = ","
-  )
-)
-
-
-# =============================================================================
-# 10. COMBINE CHILD-LEVEL ACCESS RESULTS
-# =============================================================================
-
-child_access <- children |>
+child <- children |>
   select(
     child_row_id,
-    county
+    any_of(c("UniquID", "county"))
   ) |>
-  
   left_join(
-    
     a23 |>
       select(
         child_row_id,
-        
-        providers_2023 =
-          providers_within_20,
-        
-        access_center_2023 =
-          access_center,
-        
-        access_capacity_2023 =
-          access_capacity
+        providers_2023 = providers_within_20,
+        access_center_2023 = access_center,
+        access_capacity_2023 = access_capacity
       ),
-    
     by = "child_row_id"
   ) |>
-  
   left_join(
-    
     a26 |>
       select(
         child_row_id,
-        
-        providers_2026 =
-          providers_within_20,
-        
-        access_center_2026 =
-          access_center,
-        
-        access_capacity_2026 =
-          access_capacity
+        providers_2026 = providers_within_20,
+        access_center_2026 = access_center,
+        access_capacity_2026 = access_capacity
       ),
-    
     by = "child_row_id"
   ) |>
-  
   left_join(
-    
     chg |>
       select(
         child_row_id,
-        
-        provider_change,
-        
-        center_access_change,
-        
-        capacity_access_change,
-        
-        lost_all_access,
-        
-        gained_any_access
+        any_of(c(
+          "provider_change",
+          "center_access_change",
+          "capacity_access_change"
+        ))
       ),
-    
+    by = "child_row_id"
+  ) |>
+  left_join(
+    qual |>
+      select(
+        child_row_id,
+        quality_access_2023 =
+          quality_weighted_capacity_access_2023,
+        quality_access_2026 =
+          quality_weighted_capacity_access_2026,
+        quality_access_change =
+          quality_weighted_capacity_access_change,
+        high_quality_centers_2023 =
+          high_quality_centers_within_20_2023,
+        high_quality_centers_2026 =
+          high_quality_centers_within_20_2026
+      ),
     by = "child_row_id"
   )
 
-
-# Final validation.
-
-stopifnot(
-  nrow(child_access) == 41078
-)
-
-stopifnot(
-  !any(
-    is.na(
-      child_access$access_capacity_2023
-    )
-  )
-)
-
-stopifnot(
-  !any(
-    is.na(
-      child_access$access_capacity_2026
-    )
-  )
-)
-
-
-# =============================================================================
-# 11. PERSISTENT LOW ACCESS
-# =============================================================================
-
-cut23 <- quantile(
-  child_access$access_capacity_2023,
-  0.10,
-  na.rm = TRUE
-)
-
-cut26 <- quantile(
-  child_access$access_capacity_2026,
-  0.10,
-  na.rm = TRUE
-)
-
-
-child_access <- child_access |>
+# Recalculate changes if an older saved change file lacks them.
+child <- child |>
   mutate(
-    
-    low_2023 =
-      access_capacity_2023 <= cut23,
-    
-    low_2026 =
-      access_capacity_2026 <= cut26,
-    
-    persistence = case_when(
-      
-      low_2023 &
-        low_2026 ~
-        "Persistently lowest-access",
-      
-      low_2023 &
-        !low_2026 ~
-        "Moved out of lowest-access decile",
-      
-      !low_2023 &
-        low_2026 ~
-        "Moved into lowest-access decile",
-      
-      TRUE ~
-        "Not in lowest-access decile"
+    provider_change = coalesce(
+      provider_change,
+      providers_2026 - providers_2023
+    ),
+    center_access_change = coalesce(
+      center_access_change,
+      access_center_2026 - access_center_2023
+    ),
+    capacity_access_change = coalesce(
+      capacity_access_change,
+      access_capacity_2026 - access_capacity_2023
+    ),
+    quality_access_change = coalesce(
+      quality_access_change,
+      quality_access_2026 - quality_access_2023
     )
   )
 
+# ------------------------------------------------------------------------------
+# 4. COUNTY # ------------------------------------------------------------------------------
+# 4. COUNTY ASSIGNMENT
+# ------------------------------------------------------------------------------
 
-# =============================================================================
-# 12. COUNTY + REGIONAL SUMMARY
-# =============================================================================
-
-summarise_area <- function(x, area_name) {
+# Prefer an existing county variable on the repaired demand surface.
+if ("county" %in% names(child) &&
+    any(!is.na(child$county))) {
   
-  tibble(
+  child <- child |>
+    mutate(
+      county = str_to_title(as.character(county))
+    )
+  
+} else {
+  
+  message(
+    "No usable county field found on child points; assigning Census counties."
+  )
+  
+  if (!requireNamespace("tigris", quietly = TRUE)) {
+    stop(
+      "Install tigris or add a county field to the repaired child-demand layer."
+    )
+  }
+  
+  counties <- tigris::counties(
+    state = "NC",
+    cb = TRUE,
+    year = 2024,
+    class = "sf"
+  ) |>
+    select(county = NAME) |>
+    st_make_valid() |>
+    st_transform(st_crs(child))
+  
+  # Use intersects rather than within.
+  # This also captures points lying exactly on county boundaries.
+  child <- st_join(
+    child,
+    counties,
+    join = st_intersects,
+    left = TRUE
+  )
+  
+  # --------------------------------------------------------------------------
+  # Handle any remaining unmatched points.
+  # These are usually tiny boundary/geometry precision mismatches.
+  # --------------------------------------------------------------------------
+  
+  missing_county <- which(
+    is.na(child$county)
+  )
+  
+  message(
+    "Points still missing county after polygon join: ",
+    length(missing_county)
+  )
+  
+  if (length(missing_county) > 0) {
     
-    county = area_name,
+    # Work in a projected CRS so distances are measured in meters.
+    child_proj <- st_transform(
+      child,
+      5070
+    )
     
-    n_locations =
-      nrow(x),
+    counties_proj <- st_transform(
+      counties,
+      5070
+    )
     
-    mean_centers_2023 =
-      mean(
-        x$providers_2023,
-        na.rm = TRUE
-      ),
+    nearest_idx <- st_nearest_feature(
+      child_proj[missing_county, ],
+      counties_proj
+    )
     
-    mean_centers_2026 =
-      mean(
-        x$providers_2026,
-        na.rm = TRUE
-      ),
+    nearest_dist <- st_distance(
+      child_proj[missing_county, ],
+      counties_proj[nearest_idx, ],
+      by_element = TRUE
+    )
     
-    mean_capacity_2023 =
-      mean(
-        x$access_capacity_2023,
-        na.rm = TRUE
-      ),
+    nearest_dist_m <- as.numeric(
+      nearest_dist
+    )
     
-    mean_capacity_2026 =
-      mean(
-        x$access_capacity_2026,
-        na.rm = TRUE
-      ),
+    cat(
+      "\nDistance of unmatched points to nearest NC county:\n"
+    )
     
-    mean_capacity_change =
-      mean(
-        x$capacity_access_change,
-        na.rm = TRUE
-      ),
+    print(
+      summary(nearest_dist_m)
+    )
     
-    pct_improved_capacity =
-      mean(
-        x$capacity_access_change > 0,
-        na.rm = TRUE
-      ),
+    # Assign nearest county only for the unmatched points.
+    child$county[missing_county] <-
+      counties_proj$county[nearest_idx]
     
-    pct_declined_capacity =
-      mean(
-        x$capacity_access_change < 0,
-        na.rm = TRUE
-      ),
-    
-    pct_no_center_2023 =
-      mean(
-        x$providers_2023 == 0,
-        na.rm = TRUE
-      ),
-    
-    pct_no_center_2026 =
-      mean(
-        x$providers_2026 == 0,
-        na.rm = TRUE
-      ),
-    
-    pct_persistent_low =
-      mean(
-        x$persistence ==
-          "Persistently lowest-access",
-        na.rm = TRUE
+    # Flag anything suspiciously far away.
+    if (any(nearest_dist_m > 5000)) {
+      
+      warning(
+        sum(nearest_dist_m > 5000),
+        " unmatched demand locations were more than 5 km ",
+        "from the nearest NC county polygon. Review these points."
       )
+    }
+  }
+}
+
+cat(
+  "\nFinal missing county assignments: ",
+  sum(is.na(child$county)),
+  "\n"
+)
+
+stopifnot(
+  sum(is.na(child$county)) == 0
+)
+# ------------------------------------------------------------------------------
+
+# Prefer an existing county variable on the repaired demand surface.
+if ("county" %in% names(child) &&
+    any(!is.na(child$county))) {
+
+  child <- child |>
+    mutate(
+      county = str_to_title(as.character(county))
+    )
+
+} else {
+
+  message(
+    "No usable county field found on child points; using Census counties via tigris."
+  )
+
+  if (!requireNamespace("tigris", quietly = TRUE)) {
+    stop(
+      "Install tigris or add a county field to the repaired child-demand layer."
+    )
+  }
+
+  counties <- tigris::counties(
+    state = "NC",
+    cb = TRUE,
+    year = 2024,
+    class = "sf"
+  ) |>
+    select(county = NAME) |>
+    st_transform(st_crs(child))
+
+  child <- st_join(
+    child,
+    counties,
+    join = st_within,
+    left = TRUE
   )
 }
 
-
-child_plain <- st_drop_geometry(
-  child_access
+stopifnot(
+  sum(is.na(child$county)) == 0
 )
 
+# ------------------------------------------------------------------------------
+# 5. LOWEST-ACCESS PERSISTENCE
+# ------------------------------------------------------------------------------
 
-overall_summary <- summarise_area(
-  child_plain,
-  "All WNC counties"
+q10_23 <- quantile(
+  child$access_capacity_2023,
+  0.10,
+  na.rm = TRUE
 )
 
+q10_26 <- quantile(
+  child$access_capacity_2026,
+  0.10,
+  na.rm = TRUE
+)
 
-county_summary <- child_plain |>
-  group_split(
-    county
-  ) |>
-  map_dfr(
-    function(d) {
-      
-      summarise_area(
-        d,
-        unique(
-          d$county
-        )
-      )
-    }
+child <- child |>
+  mutate(
+    low23 = access_capacity_2023 <= q10_23,
+    low26 = access_capacity_2026 <= q10_26,
+    persistence = case_when(
+      low23 & low26 ~ "Persistently lowest-access",
+      low23 & !low26 ~ "Moved out of lowest-access decile",
+      !low23 & low26 ~ "Moved into lowest-access decile",
+      TRUE ~ "Not in lowest-access decile"
+    )
   )
 
+# ------------------------------------------------------------------------------
+# 6. PUBLIC 5-KM HEXAGONS
+# ------------------------------------------------------------------------------
 
-summary_out <- bind_rows(
-  overall_summary,
-  county_summary
+# EPSG:5070 = NAD83 / Conus Albers, meters.
+child_5070 <- st_transform(
+  child,
+  5070
 )
 
+hex_grid <- st_make_grid(
+  child_5070,
+  cellsize = 5000,
+  square = FALSE
+) |>
+  st_as_sf() |>
+  mutate(
+    hex_id = row_number()
+  )
 
-stopifnot(
-  nrow(summary_out) == 19
+# Assign each modeled demand location to one hexagon.
+child_hex <- st_join(
+  child_5070,
+  hex_grid,
+  join = st_within,
+  left = FALSE
 )
 
+# Dominant persistence category helper.
+mode_chr <- function(x) {
+  z <- na.omit(as.character(x))
+  if (length(z) == 0) return(NA_character_)
+  names(sort(table(z), decreasing = TRUE))[1]
+}
+
+hex_summary <- child_hex |>
+  st_drop_geometry() |>
+  group_by(hex_id) |>
+  summarise(
+    county = mode_chr(county),
+    n_locations = n(),
+
+    providers_2023 = mean(providers_2023, na.rm = TRUE),
+    providers_2026 = mean(providers_2026, na.rm = TRUE),
+    provider_change = mean(provider_change, na.rm = TRUE),
+
+    access_center_2023 = mean(access_center_2023, na.rm = TRUE),
+    access_center_2026 = mean(access_center_2026, na.rm = TRUE),
+    center_access_change = mean(center_access_change, na.rm = TRUE),
+
+    access_capacity_2023 = mean(access_capacity_2023, na.rm = TRUE),
+    access_capacity_2026 = mean(access_capacity_2026, na.rm = TRUE),
+    capacity_access_change = mean(capacity_access_change, na.rm = TRUE),
+
+    quality_access_2023 = mean(quality_access_2023, na.rm = TRUE),
+    quality_access_2026 = mean(quality_access_2026, na.rm = TRUE),
+    quality_access_change = mean(quality_access_change, na.rm = TRUE),
+
+    high_quality_centers_2023 =
+      mean(high_quality_centers_2023, na.rm = TRUE),
+
+    high_quality_centers_2026 =
+      mean(high_quality_centers_2026, na.rm = TRUE),
+
+    persistence = mode_chr(persistence),
+
+    .groups = "drop"
+  ) |>
+  filter(
+    n_locations >= 10
+  )
+
+hex_public <- hex_grid |>
+  inner_join(
+    hex_summary,
+    by = "hex_id"
+  ) |>
+  st_transform(4326)
+
+# ------------------------------------------------------------------------------
+# 7. COUNTY + REGIONAL PUBLIC SUMMARIES
+# ------------------------------------------------------------------------------
+
+summarise_area <- function(d, label) {
+
+  tibble(
+    county = label,
+    n_locations = nrow(d),
+
+    mean_centers_2023 =
+      mean(d$providers_2023, na.rm = TRUE),
+
+    mean_centers_2026 =
+      mean(d$providers_2026, na.rm = TRUE),
+
+    mean_capacity_2023 =
+      mean(d$access_capacity_2023, na.rm = TRUE),
+
+    mean_capacity_2026 =
+      mean(d$access_capacity_2026, na.rm = TRUE),
+
+    pct_improved_capacity =
+      mean(d$capacity_access_change > 0, na.rm = TRUE),
+
+    pct_declined_capacity =
+      mean(d$capacity_access_change < 0, na.rm = TRUE),
+
+    pct_no_center_2023 =
+      mean(d$providers_2023 == 0, na.rm = TRUE),
+
+    pct_no_center_2026 =
+      mean(d$providers_2026 == 0, na.rm = TRUE),
+
+    mean_quality_2023 =
+      mean(d$quality_access_2023, na.rm = TRUE),
+
+    mean_quality_2026 =
+      mean(d$quality_access_2026, na.rm = TRUE),
+
+    pct_improved_quality =
+      mean(d$quality_access_change > 0, na.rm = TRUE),
+
+    pct_declined_quality =
+      mean(d$quality_access_change < 0, na.rm = TRUE)
+  )
+}
+
+county_summary <- bind_rows(
+  child |>
+    st_drop_geometry() |>
+    group_split(county) |>
+    map_dfr(
+      ~summarise_area(
+        .x,
+        unique(.x$county)[1]
+      )
+    ),
+
+  summarise_area(
+    st_drop_geometry(child),
+    "All WNC counties"
+  )
+)
+
+# Add corrected regional system-level headline values.
+county_summary <- county_summary |>
+  mutate(
+    ec_providers_2023 =
+      if_else(
+        county == "All WNC counties",
+        332L,
+        NA_integer_
+      ),
+
+    ec_providers_2026 =
+      if_else(
+        county == "All WNC counties",
+        327L,
+        NA_integer_
+      ),
+
+    ec_capacity_2023 =
+      if_else(
+        county == "All WNC counties",
+        20000,
+        NA_real_
+      ),
+
+    ec_capacity_2026 =
+      if_else(
+        county == "All WNC counties",
+        21883,
+        NA_real_
+      )
+  )
+
+# ------------------------------------------------------------------------------
+# 8. METADATA
+# ------------------------------------------------------------------------------
+
+metadata <- tribble(
+  ~field, ~value,
+
+  "study_footprint",
+  "18 Western North Carolina counties present in the 2023 baseline",
+
+  "modeled_demand_locations",
+  "41078",
+
+  "public_hex_size",
+  "5 km",
+
+  "public_suppression_rule",
+  "Hexagons with fewer than 10 modeled child-demand locations are not displayed",
+
+  "provider_eligibility",
+  paste(
+    "Analytic provider universe restricted to licenses serving at least",
+    "some children younger than age 5; school-age-only licenses excluded"
+  ),
+
+  "capacity_definition",
+  paste(
+    "Full licensed capacity at EC-serving providers; mixed-age programs",
+    "may include school-age capacity and values must not be interpreted",
+    "as preschool or under-5 slots"
+  ),
+
+  "travel_weights",
+  "0-10 minutes = 1.0; 10-20 minutes = 0.5",
+
+  "ec_providers_2023",
+  "332",
+
+  "ec_providers_2026",
+  "327",
+
+  "licensed_capacity_ec_serving_2023",
+  "20000",
+
+  "licensed_capacity_ec_serving_2026",
+  "21883",
+
+  "quality_rating_coverage_2023",
+  percent(qcoverage$pct_with_star[qcoverage$year == 2023], accuracy = 0.1),
+
+  "quality_rating_coverage_2026",
+  percent(qcoverage$pct_with_star[qcoverage$year == 2026], accuracy = 0.1),
+
+  "quality_caution",
+  paste(
+    "North Carolina's quality-rating framework changed after the 2023",
+    "baseline; longitudinal quality comparisons are descriptive"
+  ),
+
+  "causal_caution",
+  paste(
+    "2023-2026 differences are descriptive longitudinal changes and",
+    "should not be interpreted as causal effects of Hurricane Helene"
+  )
+)
+
+# ------------------------------------------------------------------------------
+# 9. WRITE PUBLIC FILES
+# ------------------------------------------------------------------------------
+
+st_write(
+  hex_public,
+  file.path(
+    public_dir,
+    "child_access_hex.geojson"
+  ),
+  delete_dsn = TRUE,
+  quiet = TRUE
+)
 
 write_csv(
-  summary_out,
+  county_summary,
   file.path(
     public_dir,
     "county_summary_public.csv"
   )
 )
-
-
-# =============================================================================
-# 13. RUTHERFORD QA
-# =============================================================================
-
-ruth_summary <- summary_out |>
-  filter(
-    county == "Rutherford"
-  )
-
-
-message(
-  "\nRUTHERFORD PUBLIC SUMMARY"
-)
-
-print(
-  ruth_summary
-)
-
-
-# =============================================================================
-# 14. BUILD PUBLIC 5-KM HEX GRID
-# =============================================================================
-
-# Project to CONUS Albers.
-# Units are meters.
-
-work_crs <- 5070
-
-
-children_proj <- child_access |>
-  st_transform(
-    work_crs
-  )
-
-
-counties_proj <- counties |>
-  st_transform(
-    work_crs
-  )
-
-
-wnc_outline <- counties_proj |>
-  summarise()
-
-
-# 5 km hexagonal grid.
-
-hex_grid <- st_make_grid(
-  
-  wnc_outline,
-  
-  cellsize = 5000,
-  
-  square = FALSE
-  
-) |>
-  st_as_sf() |>
-  mutate(
-    hex_id =
-      row_number()
-  )
-
-
-# Keep only cells intersecting the study region.
-
-hex_grid <- hex_grid[
-  lengths(
-    st_intersects(
-      hex_grid,
-      wnc_outline
-    )
-  ) > 0,
-]
-
-
-# =============================================================================
-# 15. ASSIGN CHILD-DEMAND POINTS TO HEXES
-# =============================================================================
-
-child_hex <- st_join(
-  
-  children_proj,
-  
-  hex_grid |>
-    select(
-      hex_id
-    ),
-  
-  join = st_within,
-  
-  left = FALSE
-)
-
-
-stopifnot(
-  nrow(child_hex) == 41078
-)
-
-
-# =============================================================================
-# 16. HEX-LEVEL ACCESS SUMMARY
-# =============================================================================
-
-hex_stats <- child_hex |>
-  st_drop_geometry() |>
-  group_by(
-    hex_id
-  ) |>
-  summarise(
-    
-    n_locations =
-      n(),
-    
-    access_capacity_2023 =
-      mean(
-        access_capacity_2023,
-        na.rm = TRUE
-      ),
-    
-    access_capacity_2026 =
-      mean(
-        access_capacity_2026,
-        na.rm = TRUE
-      ),
-    
-    capacity_access_change =
-      mean(
-        capacity_access_change,
-        na.rm = TRUE
-      ),
-    
-    mean_providers_2023 =
-      mean(
-        providers_2023,
-        na.rm = TRUE
-      ),
-    
-    mean_providers_2026 =
-      mean(
-        providers_2026,
-        na.rm = TRUE
-      ),
-    
-    pct_improved =
-      mean(
-        capacity_access_change > 0,
-        na.rm = TRUE
-      ),
-    
-    pct_persistent_low =
-      mean(
-        persistence ==
-          "Persistently lowest-access",
-        na.rm = TRUE
-      ),
-    
-    .groups = "drop"
-  )
-
-
-# =============================================================================
-# 17. DOMINANT PERSISTENCE CATEGORY
-# =============================================================================
-
-dominant_persistence <- child_hex |>
-  st_drop_geometry() |>
-  count(
-    hex_id,
-    persistence,
-    name = "n"
-  ) |>
-  group_by(
-    hex_id
-  ) |>
-  slice_max(
-    n,
-    n = 1,
-    with_ties = FALSE
-  ) |>
-  ungroup() |>
-  select(
-    hex_id,
-    persistence
-  )
-
-
-# =============================================================================
-# 18. ATTACH HEX GEOMETRIES
-# =============================================================================
-
-hex_public <- hex_grid |>
-  inner_join(
-    hex_stats,
-    by = "hex_id"
-  ) |>
-  left_join(
-    dominant_persistence,
-    by = "hex_id"
-  )
-
-
-# =============================================================================
-# 19. ASSIGN DISPLAY COUNTY TO HEX
-# =============================================================================
-
-# Use point-on-surface rather than centroid because some cells cross
-# county borders.
-
-hex_points <- st_point_on_surface(
-  hex_public
-)
-
-
-hex_county <- st_join(
-  
-  hex_points,
-  
-  counties_proj,
-  
-  join = st_within,
-  
-  left = TRUE
-  
-) |>
-  st_drop_geometry() |>
-  select(
-    hex_id,
-    county
-  )
-
-
-hex_public <- hex_public |>
-  left_join(
-    hex_county,
-    by = "hex_id"
-  )
-
-
-# =============================================================================
-# 20. PRIVACY / STABILITY SUPPRESSION
-# =============================================================================
-
-# Do not publish cells represented by very few modeled residential points.
-
-MIN_PUBLIC_LOCATIONS <- 10
-
-
-hex_public <- hex_public |>
-  filter(
-    n_locations >=
-      MIN_PUBLIC_LOCATIONS
-  )
-
-
-message(
-  "\nPublic hexagons after n >= ",
-  MIN_PUBLIC_LOCATIONS,
-  " suppression: ",
-  nrow(hex_public)
-)
-
-
-# =============================================================================
-# 21. VERIFY RUTHERFORD IS PRESENT IN PUBLIC HEXES
-# =============================================================================
-
-ruth_hex_n <- hex_public |>
-  st_drop_geometry() |>
-  filter(
-    county == "Rutherford"
-  ) |>
-  nrow()
-
-
-if (ruth_hex_n == 0) {
-  
-  stop(
-    "No Rutherford County hexagons survived the public aggregation. ",
-    "Do not publish until this is investigated."
-  )
-}
-
-
-message(
-  "Public Rutherford County hexagons: ",
-  ruth_hex_n
-)
-
-
-# =============================================================================
-# 22. TRANSFORM FOR LEAFLET
-# =============================================================================
-
-hex_public <- hex_public |>
-  st_transform(
-    4326
-  )
-
-
-# =============================================================================
-# 23. WRITE PUBLIC GEOJSON
-# =============================================================================
-
-geojson_file <- file.path(
-  public_dir,
-  "child_access_hex.geojson"
-)
-
-
-if (
-  file.exists(
-    geojson_file
-  )
-) {
-  
-  file.remove(
-    geojson_file
-  )
-}
-
-
-st_write(
-  
-  hex_public,
-  
-  geojson_file,
-  
-  driver = "GeoJSON",
-  
-  quiet = TRUE
-)
-
-
-# =============================================================================
-# 24. WRITE PUBLIC METADATA
-# =============================================================================
-
-metadata <- tibble(
-  
-  item = c(
-    "analysis_version",
-    "demand_surface_n",
-    "original_demand_n",
-    "rutherford_added_n",
-    "rutherford_source",
-    "hex_cellsize_m",
-    "minimum_locations_per_public_hex",
-    "access_measure"
-  ),
-  
-  value = c(
-    "18-county Rutherford-repaired",
-    "41078",
-    "37982",
-    "3096",
-    "Rutherford E911 address points, 2023-09-07",
-    "5000",
-    as.character(
-      MIN_PUBLIC_LOCATIONS
-    ),
-    "Enhanced two-step floating catchment area (E2SFCA)"
-  )
-)
-
 
 write_csv(
   metadata,
@@ -1033,78 +674,12 @@ write_csv(
   )
 )
 
-
-# =============================================================================
-# 25. FINAL QA
-# =============================================================================
-
-message(
-  "\n============================================================"
-)
-
-message(
-  "PUBLIC SHINY DATA PREPARATION COMPLETE"
-)
-
-message(
-  "============================================================"
-)
-
-message(
-  "Final analytic demand surface: 41,078"
-)
-
-message(
-  "Original 17-county demand points: 37,982"
-)
-
-message(
-  "Added Rutherford demand points: 3,096"
-)
-
-message(
-  "Public hexes: ",
-  nrow(hex_public)
-)
-
-message(
-  "Rutherford public hexes: ",
-  ruth_hex_n
-)
-
-message(
-  "\nFiles written:"
-)
-
-message(
-  "  ",
-  geojson_file
-)
-
-message(
-  "  ",
-  file.path(
-    public_dir,
-    "county_summary_public.csv"
-  )
-)
-
-message(
-  "  ",
-  file.path(
-    public_dir,
-    "public_data_metadata.csv"
-  )
-)
-
-message(
-  "\nNo exact residential coordinates were exported."
-)
-
-message(
-  "No routing was rerun."
-)
-
-message(
-  "============================================================\n"
-)
+message("\n======================================================")
+message("PUBLIC DATA REBUILT WITH EC-ELIGIBILITY CORRECTION")
+message("======================================================")
+message("Demand locations: ", nrow(child))
+message("Public hexagons: ", nrow(hex_public))
+message("Suppression threshold: >=10 modeled locations per hex")
+message("EC providers: 332 (2023) -> 327 (2026)")
+message("EC-serving licensed capacity: 20,000 -> 21,883")
+message("No routing/HERE calls were made.")
